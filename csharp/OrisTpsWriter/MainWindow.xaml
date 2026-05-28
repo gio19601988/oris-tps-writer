@@ -1,0 +1,265 @@
+<Window x:Class="OrisTpsWriter.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ORIS TPS Writer — ქართული ბუღალტრული ცხრილების გენერატორი"
+        Height="760" Width="1080"
+        WindowStartupLocation="CenterScreen"
+        FontFamily="Segoe UI, BPG Nino Mtavruli, Sylfaen"
+        Background="#F4F5F7">
+
+    <Window.Resources>
+        <!-- ფერთა პალიტრა -->
+        <SolidColorBrush x:Key="Ink"        Color="#1C2530"/>
+        <SolidColorBrush x:Key="Muted"      Color="#6A7480"/>
+        <SolidColorBrush x:Key="Accent"     Color="#2D6A4F"/>
+        <SolidColorBrush x:Key="AccentDk"   Color="#1B4332"/>
+        <SolidColorBrush x:Key="Line"       Color="#DCE0E6"/>
+        <SolidColorBrush x:Key="Panel"      Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="Danger"     Color="#B23A48"/>
+
+        <!-- ღილაკის სტილი -->
+        <Style x:Key="Btn" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource Accent}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Padding" Value="14,8"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="b" Background="{TemplateBinding Background}"
+                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="b" Property="Background" Value="{StaticResource AccentDk}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="b" Property="Background" Value="#B8C0C8"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="BtnGhost" TargetType="Button" BasedOn="{StaticResource Btn}">
+            <Setter Property="Background" Value="#EAEDF0"/>
+            <Setter Property="Foreground" Value="{StaticResource Ink}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="b" Background="{TemplateBinding Background}"
+                                CornerRadius="6" Padding="{TemplateBinding Padding}"
+                                BorderBrush="{StaticResource Line}" BorderThickness="1">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="b" Property="Background" Value="#DDE2E7"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource Panel}"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="16"/>
+        </Style>
+
+        <Style x:Key="H2" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource Ink}"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+        </Style>
+
+        <Style TargetType="TextBox">
+            <Setter Property="Padding" Value="7,5"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+
+        <Style TargetType="ComboBox">
+            <Setter Property="Padding" Value="7,5"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- სათაური -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+            <TextBlock Text="ORIS TPS Writer" FontSize="24" FontWeight="Bold"
+                       Foreground="{StaticResource AccentDk}"/>
+            <TextBlock Text="ქართული ბუღალტრული .tps ფაილების გენერატორი — Clarion TopSpeed თავსებადი"
+                       FontSize="13" Foreground="{StaticResource Muted}" Margin="0,2,0,0"/>
+        </StackPanel>
+
+        <!-- ცხრილის სახელი + ფილდები + keys -->
+        <Grid Grid.Row="1" Margin="0,0,0,14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="14"/>
+                <ColumnDefinition Width="1.4*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- მარცხენა: ცხრილი + ფილდის დამატება -->
+            <Border Grid.Column="0" Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="ცხრილის კონფიგურაცია" Style="{StaticResource H2}"/>
+
+                    <TextBlock Text="ცხრილის სახელი" FontSize="12" Foreground="{StaticResource Muted}"/>
+                    <TextBox x:Name="TxtTableName" Text="UNNAMED" Margin="0,3,0,12"/>
+
+                    <Separator Margin="0,0,0,12" Background="{StaticResource Line}"/>
+
+                    <TextBlock Text="ახალი ფილდი" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,0,0,6"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="6"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="TxtFieldName" Grid.Column="0"/>
+                        <ComboBox x:Name="CmbFieldType" Grid.Column="2" Width="110" SelectedIndex="0">
+                            <ComboBoxItem Content="STRING"/>
+                            <ComboBoxItem Content="LONG"/>
+                            <ComboBoxItem Content="ULONG"/>
+                            <ComboBoxItem Content="SHORT"/>
+                        </ComboBox>
+                    </Grid>
+                    <Grid Margin="0,6,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="6"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="6"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="სიგრძე:" VerticalAlignment="Center"
+                                   FontSize="12" Foreground="{StaticResource Muted}"/>
+                        <TextBox x:Name="TxtFieldLen" Grid.Column="2" Text="30"/>
+                        <Button x:Name="BtnAddField" Grid.Column="4" Content="+ დამატება"
+                                Style="{StaticResource Btn}" Click="BtnAddField_Click"/>
+                    </Grid>
+
+                    <TextBlock Text="ფილდები" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,14,0,4"/>
+                    <ListView x:Name="LstFields" Height="150" BorderBrush="{StaticResource Line}">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="#" Width="30"
+                                    DisplayMemberBinding="{Binding Seq}"/>
+                                <GridViewColumn Header="სახელი" Width="150"
+                                    DisplayMemberBinding="{Binding Name}"/>
+                                <GridViewColumn Header="ტიპი" Width="70"
+                                    DisplayMemberBinding="{Binding TypeName}"/>
+                                <GridViewColumn Header="სიგრძე" Width="55"
+                                    DisplayMemberBinding="{Binding Length}"/>
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                    <Button x:Name="BtnRemoveField" Content="მონიშნულის წაშლა"
+                            Style="{StaticResource BtnGhost}" HorizontalAlignment="Left"
+                            Margin="0,6,0,0" Click="BtnRemoveField_Click"/>
+                </StackPanel>
+            </Border>
+
+            <!-- მარჯვენა: keys -->
+            <Border Grid.Column="2" Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="Keys (ინდექსები)" Style="{StaticResource H2}"/>
+                    <TextBlock Text="Clarion-ი მოითხოვს მინიმუმ ერთ key-ს ჩანაწერების საჩვენებლად."
+                               FontSize="11" Foreground="{StaticResource Muted}"
+                               TextWrapping="Wrap" Margin="0,0,0,8"/>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="6"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="TxtKeyName" Grid.Column="0"/>
+                        <Button x:Name="BtnAddKey" Grid.Column="2" Content="+ key"
+                                Style="{StaticResource Btn}" Click="BtnAddKey_Click"/>
+                    </Grid>
+                    <TextBlock Text="key-ის ფილდები (მონიშნე ქვემოთ):" FontSize="11"
+                               Foreground="{StaticResource Muted}" Margin="0,8,0,4"/>
+                    <ListView x:Name="LstKeyFields" Height="80" SelectionMode="Multiple"
+                              BorderBrush="{StaticResource Line}">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="ფილდი" Width="200"
+                                    DisplayMemberBinding="{Binding Name}"/>
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+
+                    <TextBlock Text="დამატებული keys:" FontSize="11"
+                               Foreground="{StaticResource Muted}" Margin="0,10,0,4"/>
+                    <ListBox x:Name="LstKeys" Height="90" BorderBrush="{StaticResource Line}"
+                             FontSize="12"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- მონაცემთა ცხრილი -->
+        <Border Grid.Row="2" Style="{StaticResource Card}">
+            <DockPanel>
+                <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
+                    <TextBlock Text="მონაცემები (ჩანაწერები)" Style="{StaticResource H2}"
+                               VerticalAlignment="Center"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button x:Name="BtnDemo" Content="Demo მონაცემები"
+                                Style="{StaticResource BtnGhost}" Click="BtnDemo_Click"/>
+                        <Button x:Name="BtnAddRow" Content="+ ჩანაწერი"
+                                Style="{StaticResource Btn}" Margin="6,0,0,0" Click="BtnAddRow_Click"/>
+                        <Button x:Name="BtnDelRow" Content="რიგის წაშლა"
+                                Style="{StaticResource BtnGhost}" Margin="6,0,0,0"
+                                Click="BtnDelRow_Click"/>
+                        <Button x:Name="BtnImportCsv" Content="CSV იმპორტი"
+                                Style="{StaticResource BtnGhost}" Margin="6,0,0,0"
+                                Click="BtnImportCsv_Click"/>
+                    </StackPanel>
+                </Grid>
+                <DataGrid x:Name="GridData" AutoGenerateColumns="False"
+                          CanUserAddRows="True" CanUserDeleteRows="True"
+                          HeadersVisibility="All" GridLinesVisibility="All"
+                          BorderBrush="{StaticResource Line}"
+                          RowBackground="White" AlternatingRowBackground="#F7F9FA"
+                          FontSize="13"/>
+            </DockPanel>
+        </Border>
+
+        <!-- ქვედა პანელი -->
+        <Border Grid.Row="3" Style="{StaticResource Card}" Margin="0,14,0,0" Padding="14,12">
+            <Grid>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock x:Name="TxtStatus" Text="მზადაა."
+                               Foreground="{StaticResource Muted}" VerticalAlignment="Center"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="BtnPreview" Content="სტრუქტურის გადახედვა"
+                            Style="{StaticResource BtnGhost}" Click="BtnPreview_Click"/>
+                    <Button x:Name="BtnSave" Content="💾  .tps ფაილის შენახვა"
+                            Style="{StaticResource Btn}" Margin="8,0,0,0"
+                            FontWeight="SemiBold" Click="BtnSave_Click"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

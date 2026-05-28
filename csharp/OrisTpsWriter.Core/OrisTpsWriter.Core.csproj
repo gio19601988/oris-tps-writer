@@ -1,0 +1,17 @@
+<!--
+  OrisTpsWriter.Core — UI-დან დამოუკიდებელი class library.
+  net8.0 (cross-platform): შენი ASP.NET Core backend-ში გამოსაყენებლად.
+
+  აშენება:  dotnet build
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>OrisTpsWriter.Core</AssemblyName>
+    <RootNamespace>OrisTpsWriter</RootNamespace>
+  </PropertyGroup>
+
+</Project>

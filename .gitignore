@@ -1,0 +1,36 @@
+# ---- .NET ----
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.dll
+*.pdb
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# ---- Editor ----
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---- Build / temp ----
+*.log
+tmp/
+*.tmp
+
+# ---- Generated .tps test output (keep curated samples/ only) ----
+/test_*.tps
+/*.tps
+!samples/*.tps
