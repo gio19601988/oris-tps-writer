@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 namespace OrisTpsWriter.Core
@@ -183,9 +184,15 @@ namespace OrisTpsWriter.Core
             List<TpsIndex> indexes = null,
             int recordsPerPage = DefaultRecordsPerPage,
             int tableNumber = 1,
-            bool includeIndexPage = true)
+            bool includeIndexPage = true,
+            long lastIssuedRow = -1)
         {
             indexes ??= new List<TpsIndex>();
+
+            // lastIssuedRow: max record number (not count) — INSERT-safe.
+            // -1 → auto (max record number).
+            if (lastIssuedRow < 0)
+                lastIssuedRow = dataRows.Count > 0 ? dataRows.Max(r => r.RecordNumber) : 0;
 
             // --- Build TableDef body ---
             byte[] tableDefBody = BuildTableDefBody(fields, recordLength, indexes, driverVersion: 1);
@@ -276,7 +283,7 @@ namespace OrisTpsWriter.Core
                 blocks.Add((cbStart.Value, cbEnd.Value));
 
             // --- Header ---
-            byte[] header = BuildHeader(blocks, fileLength, dataRows.Count);
+            byte[] header = BuildHeader(blocks, fileLength, lastIssuedRow, dataRows.Count);
 
             // --- Assemble ---
             using var outMs = new MemoryStream();
@@ -315,7 +322,7 @@ namespace OrisTpsWriter.Core
         // File header (0x200 bytes)
         // -------------------------------------------------------------------
         private static byte[] BuildHeader(List<(int Start, int End)> blocks,
-                                          int fileLength, int lastIssuedRow)
+                                          int fileLength, long lastIssuedRow, int recordCount)
         {
             int OffsetToRef(int off)
             {
@@ -334,7 +341,7 @@ namespace OrisTpsWriter.Core
             ms.Write(Magic, 0, 4);                        // +0x0E "tOpS"
             ms.Write(U16(0), 0, 2);                       // +0x12 zeros
             ms.Write(U32Be(lastIssuedRow), 0, 4);         // +0x14 lastIssuedRow (BE)
-            ms.Write(U32(lastIssuedRow + 1), 0, 4);       // +0x18 changes
+            ms.Write(U32(recordCount + 1), 0, 4);         // +0x18 changes
             ms.Write(U32(0), 0, 4);                       // +0x1C managementPageRef
 
             // pageStart[60] — leading reserved slots, then blocks

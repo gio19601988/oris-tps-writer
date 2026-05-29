@@ -213,6 +213,9 @@
                                Foreground="{StaticResource Muted}" Margin="0,10,0,4"/>
                     <ListBox x:Name="LstKeys" Height="90" BorderBrush="{StaticResource Line}"
                              FontSize="12"/>
+                    <Button x:Name="BtnRemoveKey" Content="მონიშნული key-ის წაშლა"
+                            Style="{StaticResource BtnGhost}" HorizontalAlignment="Left"
+                            Margin="0,6,0,0" Click="BtnRemoveKey_Click"/>
                 </StackPanel>
             </Border>
         </Grid>
@@ -234,6 +237,9 @@
                         <Button x:Name="BtnImportCsv" Content="CSV იმპორტი"
                                 Style="{StaticResource BtnGhost}" Margin="6,0,0,0"
                                 Click="BtnImportCsv_Click"/>
+                        <Button x:Name="BtnImportExcel" Content="Excel იმპორტი"
+                                Style="{StaticResource BtnGhost}" Margin="6,0,0,0"
+                                Click="BtnImportExcel_Click"/>
                     </StackPanel>
                 </Grid>
                 <DataGrid x:Name="GridData" AutoGenerateColumns="False"

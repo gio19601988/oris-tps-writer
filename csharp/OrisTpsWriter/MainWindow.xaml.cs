@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
+using ClosedXML.Excel;
 using Microsoft.Win32;
 using OrisTpsWriter.Core;
 
@@ -137,6 +138,16 @@ namespace OrisTpsWriter
             _keys.Add(new KeyRow { KeyName = keyName, FieldNames = selected });
             TxtKeyName.Clear();
             Status($"key '{keyName}' დაემატა.");
+        }
+
+        private void BtnRemoveKey_Click(object sender, RoutedEventArgs e)
+        {
+            if (LstKeys.SelectedItem is KeyRow kr)
+            {
+                _keys.Remove(kr);
+                Status($"key '{kr.KeyName}' წაიშალა.");
+            }
+            else Status("მონიშნე key წასაშლელად.", true);
         }
 
         // -------------------------------------------------------------------
@@ -275,6 +286,51 @@ namespace OrisTpsWriter
             catch (Exception ex)
             {
                 Status($"CSV შეცდომა: {ex.Message}", true);
+            }
+        }
+
+        private void BtnImportExcel_Click(object sender, RoutedEventArgs e)
+        {
+            if (_fields.Count == 0)
+            {
+                Status("ჯერ დაამატე ფილდები.", true);
+                return;
+            }
+            var dlg = new OpenFileDialog
+            {
+                Filter = "Excel ფაილები (*.xlsx;*.xls)|*.xlsx;*.xls|ყველა ფაილი (*.*)|*.*",
+                Title = "აირჩიე Excel ფაილი"
+            };
+            if (dlg.ShowDialog() != true) return;
+
+            try
+            {
+                using var wb = new XLWorkbook(dlg.FileName);
+                var ws = wb.Worksheets.First();
+                var usedRange = ws.RangeUsed();
+                if (usedRange == null) { Status("Excel ცხრილი ცარიელია.", true); return; }
+
+                int firstRow = usedRange.FirstRow().RowNumber();
+                int lastRow  = usedRange.LastRow().RowNumber();
+
+                var firstCellVal = ws.Cell(firstRow, 1).GetString().Trim();
+                if (_fields.Any(f => f.Name.Equals(firstCellVal, StringComparison.OrdinalIgnoreCase)))
+                    firstRow++;
+
+                int imported = 0;
+                for (int r = firstRow; r <= lastRow; r++)
+                {
+                    var row = _dataTable.NewRow();
+                    for (int i = 0; i < _fields.Count; i++)
+                        row[_fields[i].Name] = ws.Cell(r, i + 1).GetString().Trim();
+                    _dataTable.Rows.Add(row);
+                    imported++;
+                }
+                Status($"Excel-იდან იმპორტირდა {imported} ჩანაწერი.");
+            }
+            catch (Exception ex)
+            {
+                Status($"Excel შეცდომა: {ex.Message}", true);
             }
         }
 

@@ -41,7 +41,8 @@ def _align_up(value, boundary=0x100):
 
 def build_tps_multipage(table_name, fields, record_length, data_rows,
                         indexes=None, records_per_page=RECORDS_PER_PAGE,
-                        table_number=1, include_index_page=True):
+                        table_number=1, include_index_page=True,
+                        last_issued_row=None):
     """
     მრავალ-page TPS ფაილის builder.
     
@@ -52,6 +53,9 @@ def build_tps_multipage(table_name, fields, record_length, data_rows,
     indexes:         list of Index instances
     records_per_page: data records per page
     include_index_page: შევქმნათ თუ არა index/key page
+    last_issued_row: header-ში ჩასაწერი lastIssuedRow. None → max record number.
+                     (მნიშვნელოვანია INSERT-ისთვის: record numbers gaps-ით
+                      არ უნდა გამოიწვიოს duplicate numbering მომავალ insert-ში)
     
     Returns: ფაილის bytes
     """
@@ -185,6 +189,10 @@ def build_tps_multipage(table_name, fields, record_length, data_rows,
     
     BLOCK_START_INDEX = 2   # გამარჯვებული ფორმულა
     
+    # lastIssuedRow: max record number (not count) — INSERT-safe
+    if last_issued_row is None:
+        last_issued_row = max((rn for rn, _ in data_rows), default=0)
+
     buf = BytesIO()
     buf.write(u32(0))                          # +0x00 addr
     buf.write(u16(HEADER_SIZE))                # +0x04 hdrSize
@@ -192,7 +200,7 @@ def build_tps_multipage(table_name, fields, record_length, data_rows,
     buf.write(u32(file_length))                # +0x0A fileLength2
     buf.write(TPS_MAGIC)                       # +0x0E "tOpS"
     buf.write(u16(0))                          # +0x12 zeros
-    buf.write(u32be(len(data_rows)))           # +0x14 lastIssuedRow (BE)
+    buf.write(u32be(last_issued_row))          # +0x14 lastIssuedRow (BE)
     buf.write(u32(len(data_rows) + 1))         # +0x18 changes
     buf.write(u32(0))                          # +0x1C managementPageRef
     

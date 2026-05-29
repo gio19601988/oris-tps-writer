@@ -63,11 +63,14 @@ oris-tps-writer/
 │   ├── oris_tps.py         #   high-level API (start here)
 │   ├── tps_writer_v2.py    #   low-level writer engine
 │   ├── tps_multipage.py    #   multi-page support for large tables
+│   ├── tps_reader.py       #   reader for existing files
+│   ├── tps_insert.py       #   INSERT / UPDATE / DELETE
 │   ├── oris_encoding.py    #   Georgian single-byte codec
 │   ├── tps_rle.py          #   TopSpeed RLE codec
 │   └── tps_verifier.py     #   reader/verifier
 ├── csharp/                 # C# / .NET 8 implementation
 │   ├── OrisTpsWriter.Core/ #   class library (cross-platform)
+│   │                       #     incl. TpsReader.cs, TpsTable.cs (editing)
 │   ├── OrisTpsWriter/      #   WPF desktop app (Windows)
 │   └── OrisTpsWriter.sln
 ├── samples/                # Example .tps output files
@@ -79,6 +82,7 @@ oris-tps-writer/
 ## Features
 
 - ✅ Write `.tps` files from scratch — verified in the real Clarion engine
+- ✅ **Edit existing `.tps` files** — INSERT / UPDATE / DELETE on real ORIS files
 - ✅ Georgian text via the ORIS single-byte encoding
 - ✅ Multiple field types: `STRING`, `LONG`, `ULONG`, `SHORT`
 - ✅ Indexes / keys (required for records to display)
@@ -87,10 +91,42 @@ oris-tps-writer/
 - ✅ Python and C# implementations with identical output
 - ✅ WPF desktop app for non-programmers
 
+## Editing existing files
+
+INSERT / UPDATE / DELETE use a safe **read-modify-rewrite** strategy: the whole
+file is parsed, modified in memory, and regenerated with a consistent index —
+rather than risky in-place B-tree surgery. Existing records (numbers and
+content) are fully preserved, and `lastIssuedRow` is carried over so new records
+never collide with deleted ones.
+
+```python
+from tps_insert import TpsTable
+
+t = TpsTable.open("data.tps")
+rn = t.insert({"ARN:KADR": "ახალი გვარი", "ARN:SECT": ""})
+t.update(rn, {"ARN:SECT": "A1"})
+t.delete(42)
+t.save("data.tps", backup=True)   # writes data.tps.bak_<timestamp> first
+```
+
+```csharp
+using OrisTpsWriter.Core;
+
+var t = TpsTable.Open(@"C:\ORIS\Data\data.tps");
+int rn = t.Insert(new() { ["ARN:KADR"] = "ახალი გვარი", ["ARN:SECT"] = "" });
+t.Save(@"C:\ORIS\Data\data.tps", backup: true);
+```
+
+> ⚠️ Always back up before editing production accounting data. Make sure ORIS is
+> closed (no open file lock) while writing.
+
 ## Limitations
 
-- Generates **new** files (full table regeneration). In-place `INSERT` into existing files (preserving existing B-tree indexes) is not yet implemented.
-- The Georgian mapping covers the 33 standard letters. Other custom ORIS glyphs may need to be added to the codec.
+- Editing uses full regeneration (read-modify-rewrite), not in-place B-tree
+  updates. This is safe and correct, but rewrites the entire file on each save.
+- The Georgian mapping covers the 33 standard letters. Other custom ORIS glyphs
+  may need to be added to the codec.
+- Memo/BLOB fields are not yet supported.
 
 ---
 

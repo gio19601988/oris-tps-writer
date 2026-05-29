@@ -10,9 +10,26 @@ Requires Python 3.7+.
 | `oris_tps.py` | High-level API — **start here** |
 | `tps_writer_v2.py` | Low-level writer engine |
 | `tps_multipage.py` | Multi-page support for large tables |
+| `tps_reader.py` | Reader for existing `.tps` files |
+| `tps_insert.py` | INSERT / UPDATE / DELETE on existing files |
 | `oris_encoding.py` | Georgian single-byte codec |
 | `tps_rle.py` | TopSpeed RLE codec |
 | `tps_verifier.py` | Reader / verifier for testing output |
+
+## Editing an existing file
+
+```python
+from tps_insert import TpsTable
+
+t = TpsTable.open("data.tps")
+print(f"{t.count} records, last issued #{t.last_issued_row}")
+
+rn = t.insert({"ARN:KADR": "ახალი გვარი", "ARN:SECT": ""})
+t.update(rn, {"ARN:SECT": "A1"})
+t.delete(42)
+
+t.save("data.tps", backup=True)   # creates data.tps.bak_<timestamp>
+```
 
 ## Example
 
