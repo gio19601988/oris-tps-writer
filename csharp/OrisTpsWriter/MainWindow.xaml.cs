@@ -227,13 +227,19 @@ namespace OrisTpsWriter
             GridReader.Columns.Clear();
             foreach (DataColumn col in _readerTable.Columns)
             {
+                // Fixed starting widths (not Star) so many columns overflow the
+                // viewport horizontally — that is what makes the bottom scrollbar
+                // appear and lets each column be resized independently.
+                DataGridLength width = col.ColumnName == "#"
+                    ? new DataGridLength(50)
+                    : new DataGridLength(160);
+
                 GridReader.Columns.Add(new DataGridTextColumn
                 {
                     Header  = col.ColumnName,
                     Binding = new System.Windows.Data.Binding($"[{col.ColumnName}]"),
-                    Width   = col.ColumnName == "#"
-                        ? new DataGridLength(55)
-                        : new DataGridLength(1, DataGridLengthUnitType.Star)
+                    Width   = width,
+                    MinWidth = 40,
                 });
             }
             GridReader.ItemsSource = _readerTable.DefaultView;

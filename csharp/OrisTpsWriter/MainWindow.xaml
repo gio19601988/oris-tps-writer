@@ -201,9 +201,41 @@
                                   HeadersVisibility="All" GridLinesVisibility="All"
                                   BorderThickness="0" RowBackground="White"
                                   AlternatingRowBackground="#F7F9FA" FontSize="13"
+                                  CanUserResizeColumns="True" CanUserSortColumns="True"
+                                  ColumnWidth="140"
                                   HorizontalScrollBarVisibility="Auto"
+                                  VerticalScrollBarVisibility="Auto"
+                                  ScrollViewer.CanContentScroll="True"
                                   VirtualizingPanel.IsVirtualizing="True"
-                                  VirtualizingPanel.VirtualizationMode="Recycling"/>
+                                  VirtualizingPanel.VirtualizationMode="Recycling">
+                            <DataGrid.ColumnHeaderStyle>
+                                <Style TargetType="DataGridColumnHeader">
+                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                    <Setter Property="Background"  Value="#EFF2F4"/>
+                                    <Setter Property="Foreground"  Value="{StaticResource Ink}"/>
+                                    <Setter Property="Padding"     Value="8,6"/>
+                                    <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+                                    <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                                    <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                                </Style>
+                            </DataGrid.ColumnHeaderStyle>
+                            <DataGrid.CellStyle>
+                                <Style TargetType="DataGridCell">
+                                    <Setter Property="Padding"         Value="6,3"/>
+                                    <Setter Property="BorderThickness" Value="0"/>
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="DataGridCell">
+                                                <Border Padding="{TemplateBinding Padding}"
+                                                        Background="{TemplateBinding Background}">
+                                                    <ContentPresenter VerticalAlignment="Center"/>
+                                                </Border>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </DataGrid.CellStyle>
+                        </DataGrid>
                     </Border>
 
                     <!-- Row 3 — Edit panel (INSERT / UPDATE form, collapsed by default) -->
