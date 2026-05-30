@@ -89,8 +89,13 @@ namespace OrisTpsWriter.Core
             var outDict = new Dictionary<string, object>();
             foreach (var f in Fields)
             {
-                var chunk = new byte[f.Length];
-                Array.Copy(row, f.Offset, chunk, 0, Math.Min(f.Length, row.Length - f.Offset));
+                int len = Math.Max(0, f.Length);
+                var chunk = new byte[len];
+                // Copy only what's actually available; a field whose offset/length
+                // runs past the row stays zero-filled rather than throwing.
+                int avail = (f.Offset >= 0 && f.Offset < row.Length) ? row.Length - f.Offset : 0;
+                int copy  = Math.Max(0, Math.Min(len, avail));
+                if (copy > 0) Array.Copy(row, f.Offset, chunk, 0, copy);
                 if (f.Type == FieldType.Date)
                 {
                     outDict[f.Name] = TpsValue.DecodeDate(chunk);
