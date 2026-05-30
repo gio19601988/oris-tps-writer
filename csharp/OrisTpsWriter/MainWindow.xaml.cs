@@ -284,6 +284,158 @@ namespace OrisTpsWriter
             TxtReaderStatus.Text = $"ჩანაწერი #{recNum} წაიშალა. (💾 შენახვა — ცვლილებები ფაილში)";
         }
 
+        // ────────────────────────────────────────────────────────
+        // Bulk import from Excel / CSV → opened table
+        // ────────────────────────────────────────────────────────
+        private void BtnImportData_Click(object sender, RoutedEventArgs e)
+        {
+            if (_openedTable == null)
+            { TxtReaderStatus.Text = "ჯერ გახსენი TPS ფაილი."; return; }
+
+            var dlg = new OpenFileDialog
+            {
+                Filter = "Excel/CSV (*.xlsx;*.xls;*.csv)|*.xlsx;*.xls;*.csv|" +
+                         "Excel ფაილები (*.xlsx;*.xls)|*.xlsx;*.xls|" +
+                         "CSV ფაილები (*.csv)|*.csv|ყველა ფაილი (*.*)|*.*",
+                Title  = "Excel ან CSV ფაილის არჩევა იმპორტისთვის"
+            };
+            if (dlg.ShowDialog() != true) return;
+
+            try
+            {
+                string ext  = Path.GetExtension(dlg.FileName).ToLowerInvariant();
+                var rows    = ext == ".csv"
+                    ? ReadCsvRows(dlg.FileName)
+                    : ReadXlsxRows(dlg.FileName);
+
+                if (rows.Count == 0)
+                { TxtReaderStatus.Text = "ფაილი ცარიელია."; return; }
+
+                // Header detection: does the first row match field names?
+                var fieldNames = _openedTable.Fields.Select(f => f.Name).ToList();
+                int[] colToField = MapColumns(rows[0], fieldNames, out bool hasHeader);
+                int startRow = hasHeader ? 1 : 0;
+
+                var toInsert = new List<Dictionary<string, object>>();
+                for (int r = startRow; r < rows.Count; r++)
+                {
+                    var cells = rows[r];
+                    if (cells.All(string.IsNullOrWhiteSpace)) continue;
+                    var values = new Dictionary<string, object>();
+                    for (int c = 0; c < cells.Length; c++)
+                    {
+                        int fi = colToField[c];
+                        if (fi >= 0) values[fieldNames[fi]] = cells[c];
+                    }
+                    toInsert.Add(values);
+                }
+
+                if (toInsert.Count == 0)
+                { TxtReaderStatus.Text = "იმპორტისთვის ჩანაწერი ვერ მოიძებნა."; return; }
+
+                var added = _openedTable.InsertMany(toInsert);
+                RefreshReaderGrid();
+                TxtReaderStatus.Text =
+                    $"📥 იმპორტირდა {added.Count} ჩანაწერი " +
+                    $"({(hasHeader ? "header-ით" : "პოზიციურად")}). " +
+                    $"(💾 შენახვა — ცვლილებები ფაილში)";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "იმპორტის შეცდომა",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        /// <summary>
+        /// აბრუნებს column→fieldIndex მეპინგს. თუ პირველი რიგი ემთხვევა ფილდების
+        /// სახელებს — header-ია და მეპინგი სახელებით კეთდება; თუ არა — პოზიციური.
+        /// -1 ნიშნავს, რომ სვეტი იგნორირდება.
+        /// </summary>
+        private static int[] MapColumns(string[] firstRow, List<string> fieldNames, out bool hasHeader)
+        {
+            int matches = firstRow.Count(c =>
+                fieldNames.Any(fn => fn.Equals(c?.Trim(), StringComparison.OrdinalIgnoreCase)));
+            hasHeader = firstRow.Length > 0 && matches >= Math.Max(1, firstRow.Length / 2);
+
+            var map = new int[firstRow.Length];
+            if (hasHeader)
+            {
+                for (int c = 0; c < firstRow.Length; c++)
+                    map[c] = fieldNames.FindIndex(fn =>
+                        fn.Equals(firstRow[c]?.Trim(), StringComparison.OrdinalIgnoreCase));
+            }
+            else
+            {
+                for (int c = 0; c < firstRow.Length; c++)
+                    map[c] = c < fieldNames.Count ? c : -1;
+            }
+            return map;
+        }
+
+        private static List<string[]> ReadXlsxRows(string path)
+        {
+            var result = new List<string[]>();
+            using var wb  = new XLWorkbook(path);
+            var ws        = wb.Worksheets.First();
+            var used      = ws.RangeUsed();
+            if (used == null) return result;
+
+            int firstRow = used.FirstRow().RowNumber();
+            int lastRow  = used.LastRow().RowNumber();
+            int firstCol = used.FirstColumn().ColumnNumber();
+            int lastCol  = used.LastColumn().ColumnNumber();
+
+            for (int r = firstRow; r <= lastRow; r++)
+            {
+                var cells = new string[lastCol - firstCol + 1];
+                for (int c = firstCol; c <= lastCol; c++)
+                    cells[c - firstCol] = ws.Cell(r, c).GetString().Trim();
+                result.Add(cells);
+            }
+            return result;
+        }
+
+        private static List<string[]> ReadCsvRows(string path)
+        {
+            var result = new List<string[]>();
+            foreach (var line in File.ReadAllLines(path, Encoding.UTF8))
+            {
+                if (line.Length == 0) { result.Add(Array.Empty<string>()); continue; }
+                result.Add(ParseCsvLine(line));
+            }
+            return result;
+        }
+
+        /// <summary>CSV ხაზის გარჩევა ბრჭყალებისა და escaped ბრჭყალების მხარდაჭერით.</summary>
+        private static string[] ParseCsvLine(string line)
+        {
+            var fields = new List<string>();
+            var sb     = new StringBuilder();
+            bool inQuotes = false;
+            for (int i = 0; i < line.Length; i++)
+            {
+                char ch = line[i];
+                if (inQuotes)
+                {
+                    if (ch == '"')
+                    {
+                        if (i + 1 < line.Length && line[i + 1] == '"') { sb.Append('"'); i++; }
+                        else inQuotes = false;
+                    }
+                    else sb.Append(ch);
+                }
+                else
+                {
+                    if (ch == '"') inQuotes = true;
+                    else if (ch == ',') { fields.Add(sb.ToString().Trim()); sb.Clear(); }
+                    else sb.Append(ch);
+                }
+            }
+            fields.Add(sb.ToString().Trim());
+            return fields.ToArray();
+        }
+
         private void BuildEditPanel(bool isInsert, int recordNum = -1)
         {
             _isInsertMode  = isInsert;

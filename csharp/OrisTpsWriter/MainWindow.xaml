@@ -178,6 +178,10 @@
                                 <Button x:Name="BtnDelete" Content="🗑️  DELETE"
                                         Style="{StaticResource BtnDanger}" Margin="6,0,0,0"
                                         Click="BtnDelete_Click"/>
+                                <Rectangle Width="1" Height="22" Fill="{StaticResource Line}" Margin="12,0,12,0"/>
+                                <Button x:Name="BtnImportData" Content="📥  Excel/CSV იმპორტი"
+                                        Style="{StaticResource BtnGhost}"
+                                        Click="BtnImportData_Click"/>
                             </StackPanel>
                             <Button x:Name="BtnSaveTps" Content="💾  TPS-ში შენახვა"
                                     Style="{StaticResource Btn}" HorizontalAlignment="Right"
