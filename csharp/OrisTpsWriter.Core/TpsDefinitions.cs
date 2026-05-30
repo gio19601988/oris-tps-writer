@@ -36,6 +36,8 @@ namespace OrisTpsWriter.Core
         public int Elements { get; }
         public int Flags { get; }
         public int Index { get; set; }       // display sequence number (0,1,2,...)
+        public int BcdDigits { get; set; }    // BCD: digits after the decimal point
+        public int BcdLength { get; set; }    // BCD: length of element (bytes)
 
         public TpsField(string name, byte type, int offset, int length,
                         int elements = 1, int flags = 0, int index = 0)

@@ -54,6 +54,20 @@ namespace OrisTpsWriter.Core
         public int Count => _records.Count;
 
         // ----------------------------------------------------------------
+        /// <summary>
+        /// True for a 4-byte LONG/ULONG field that actually stores a Clarion
+        /// "standard date" (days since 1800-12-28). ORIS uses this for fields
+        /// such as DOCS:DATE rather than the dedicated 0x04 DATE type. Detected
+        /// by name to keep ordinary integer columns numeric.
+        /// </summary>
+        private static bool IsLongDate(TpsField f)
+        {
+            if (f.Type != FieldType.Long && f.Type != FieldType.ULong) return false;
+            if (f.Length != 4) return false;
+            string n = f.Name ?? "";
+            return n.IndexOf("DATE", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
         private byte[] PackRow(Dictionary<string, object> values)
         {
             using var ms = new MemoryStream();
@@ -67,6 +81,15 @@ namespace OrisTpsWriter.Core
                 else if (f.Type == FieldType.Time)
                 {
                     ms.Write(TpsValue.EncodeTime(val), 0, 4);
+                }
+                else if (IsLongDate(f))
+                {
+                    long days = TpsValue.EncodeClarionDate(val);
+                    ms.Write(BitConverter.GetBytes(days), 0, 4);
+                }
+                else if (f.Type == FieldType.Bcd)
+                {
+                    ms.Write(TpsValue.EncodeBcd(val, f.Length, f.BcdDigits), 0, f.Length);
                 }
                 else if (NumericSizes.TryGetValue(f.Type, out int size))
                 {
@@ -104,11 +127,15 @@ namespace OrisTpsWriter.Core
                 {
                     outDict[f.Name] = TpsValue.DecodeTime(chunk);
                 }
+                else if (f.Type == FieldType.Bcd)
+                {
+                    outDict[f.Name] = TpsValue.DecodeBcd(chunk, f.BcdDigits);
+                }
                 else if (NumericSizes.TryGetValue(f.Type, out int size))
                 {
                     long n = 0;
                     for (int i = 0; i < size; i++) n |= (long)chunk[i] << (8 * i);
-                    outDict[f.Name] = n;
+                    outDict[f.Name] = IsLongDate(f) ? TpsValue.DecodeClarionDate(n) : (object)n;
                 }
                 else
                 {

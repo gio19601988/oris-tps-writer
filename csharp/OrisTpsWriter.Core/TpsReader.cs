@@ -67,7 +67,29 @@ namespace OrisTpsWriter.Core
 
             foreach (var (so, eo) in blocks)
                 ParseBlock(so, eo);
+
+            // The table definition can be split across several 0xFA records
+            // (each carries a 2-byte little-endian sequence number in its header).
+            // Concatenate the fragments in order, then parse the whole thing once.
+            if (_tableDefFragments.Count > 0)
+            {
+                int totalLen = 0;
+                foreach (var kvp in _tableDefFragments) totalLen += kvp.Value.Length;
+                var body = new byte[totalLen];
+                int p = 0;
+                foreach (var seq in _tableDefFragments.Keys) // SortedDictionary → ascending
+                {
+                    var frag = _tableDefFragments[seq];
+                    Array.Copy(frag, 0, body, p, frag.Length);
+                    p += frag.Length;
+                }
+                Fields.Clear();
+                ParseTableDef(body);
+            }
         }
+
+        // sequence number → table-definition body fragment
+        private readonly SortedDictionary<int, byte[]> _tableDefFragments = new();
 
         private void ParseBlock(int start, int end)
         {
@@ -149,7 +171,7 @@ namespace OrisTpsWriter.Core
             byte typeByte = recData[4];
             uint tableNum = U32Be(recData, 0);
 
-            if (typeByte == 0xFA) // TableDefinition
+            if (typeByte == 0xFA) // TableDefinition (possibly fragmented)
             {
                 TableNumber = (int)tableNum;
                 int bodyLen = recData.Length - hdrLen;
@@ -157,7 +179,9 @@ namespace OrisTpsWriter.Core
                 {
                     var body = new byte[bodyLen];
                     Array.Copy(recData, hdrLen, body, 0, bodyLen);
-                    ParseTableDef(body);
+                    // header layout: tableNum(4 BE) + 0xFA(1) + sequence(2 LE)
+                    int seq = hdrLen >= 7 ? U16(recData, 5) : _tableDefFragments.Count;
+                    _tableDefFragments[seq] = body; // collected; parsed after all blocks
                 }
             }
             else if (typeByte == 0xF3) // Data
@@ -206,8 +230,14 @@ namespace OrisTpsWriter.Core
                 int index    = U16(body, pos); pos += 2;
 
                 // type-specific extras
+                int bcdDigits = 0, bcdLength = 0;
                 if (ftype == 0x0A) // BCD: digitsAfterDecimal(1) + lengthOfElement(1)
                 {
+                    if (pos + 2 <= body.Length)
+                    {
+                        bcdDigits = body[pos];
+                        bcdLength = body[pos + 1];
+                    }
                     pos += 2;
                 }
                 else if (ftype == 0x12 || ftype == 0x13 || ftype == 0x14) // STRING/CSTRING/PSTRING
@@ -218,7 +248,11 @@ namespace OrisTpsWriter.Core
                     pos = zi2 < 0 ? body.Length : zi2 + 1;
                 }
 
-                Fields.Add(new TpsField(name, ftype, offset, length, elements, flags, index));
+                Fields.Add(new TpsField(name, ftype, offset, length, elements, flags, index)
+                {
+                    BcdDigits = bcdDigits,
+                    BcdLength = bcdLength,
+                });
 
                 // Self-correct string-mask padding drift: some writers pad an empty
                 // string-mask with an extra 0x00 (e.g. ARN.TPS) while standard Clarion
