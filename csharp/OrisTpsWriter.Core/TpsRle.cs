@@ -22,35 +22,102 @@ namespace OrisTpsWriter.Core
         public const int MaxSkipRun = 0x7F00; // 32512
 
         /// <summary>
-        /// RLE-encode raw data with no actual compression. Data larger than a
-        /// single skip block is emitted as several skip blocks chained with a
-        /// zero-length repeat (0x00) between them — which Unwrap (and the real
-        /// Clarion engine) treats as "repeat last byte 0 times", a no-op. This
-        /// removes the old single-block size limit so wide/large pages encode.
+        /// Minimum run length worth compressing. The repeat marker costs 1-2
+        /// bytes, so only runs longer than this are collapsed; shorter runs are
+        /// emitted as literals.
+        /// </summary>
+        private const int RunThreshold = 4;
+
+        /// <summary>
+        /// Largest repeat count a single repeat marker can encode (same 2-byte
+        /// limit as a skip count). Longer runs are split across units.
+        /// </summary>
+        private const int MaxRepeat = MaxSkipRun;
+
+        /// <summary>
+        /// RLE-encode raw data using the TopSpeed grammar:
+        ///   [skip count][skip literal bytes][repeat count]
+        /// where the repeat count repeats the LAST literal byte that many extra
+        /// times. Runs of identical bytes (very common in space/zero-padded TPS
+        /// records) are collapsed, which shrinks data and index pages a lot. The
+        /// output round-trips through Unwrap — the same decoder the app and the
+        /// real Clarion engine use — so it stays format-faithful.
         /// </summary>
         public static byte[] Wrap(byte[] raw)
         {
             int n = raw.Length;
-            var outBytes = new List<byte>(n + 8);
+            var outBytes = new List<byte>(n / 2 + 16);
 
             int pos = 0;
-            bool first = true;
-            do
+            while (pos < n)
             {
-                int chunk = Math.Min(MaxSkipRun, n - pos);
+                // Find the next run (>= RunThreshold identical bytes) at or after pos.
+                int runStart = -1, runByte = -1, runLen = 0;
+                int scan = pos;
+                while (scan < n)
+                {
+                    int len = 1;
+                    while (scan + len < n && raw[scan + len] == raw[scan]) len++;
+                    if (len >= RunThreshold)
+                    {
+                        runStart = scan; runByte = raw[scan]; runLen = len;
+                        break;
+                    }
+                    scan += len; // treat this short run as part of the literals
+                }
 
-                // separator repeat (0 times) between consecutive skip blocks
-                if (!first) outBytes.Add(0x00);
-                first = false;
+                int literalEnd; // exclusive
+                int repeat;
+                int nextPos;
+                if (runStart < 0)
+                {
+                    // No more runs — everything left is literal.
+                    literalEnd = n;
+                    repeat = 0;
+                    nextPos = n;
+                }
+                else
+                {
+                    // Literals run up to and INCLUDING the first run byte (which
+                    // becomes the byte the repeat marker multiplies).
+                    literalEnd = runStart + 1;
+                    int rep = runLen - 1;
+                    if (rep > MaxRepeat) rep = MaxRepeat; // cap; remainder handled next loop
+                    repeat = rep;
+                    nextPos = runStart + 1 + rep;
+                }
 
-                AppendSkip(outBytes, chunk);
-                for (int i = 0; i < chunk; i++) outBytes.Add(raw[pos + i]);
-                pos += chunk;
+                // Emit literal bytes [pos, literalEnd) in skip blocks. Only the
+                // final block carries the real repeat; earlier splits use 0.
+                int litLen = literalEnd - pos;
+                int lp = pos;
+                while (true)
+                {
+                    int chunk = Math.Min(MaxSkipRun, literalEnd - lp);
+                    bool isLast = (lp + chunk) >= literalEnd;
+                    AppendSkip(outBytes, chunk);
+                    for (int i = 0; i < chunk; i++) outBytes.Add(raw[lp + i]);
+                    lp += chunk;
+                    AppendRepeat(outBytes, isLast ? repeat : 0);
+                    if (isLast) break;
+                }
+
+                pos = nextPos;
             }
-            while (pos < n);
+
+            // End sentinel: the decoder only consumes a repeat marker when at
+            // least two bytes remain (`pos < n-1`). A trailing run would
+            // otherwise leave its repeat count as the final byte and be skipped.
+            // A single 0x00 — which Unwrap accepts as end-of-stream padding —
+            // guarantees every real repeat marker is read.
+            outBytes.Add(0x00);
 
             return outBytes.ToArray();
         }
+
+        /// <summary>Append a repeat count in 1-byte or 2-byte form.</summary>
+        private static void AppendRepeat(List<byte> outBytes, int count) =>
+            AppendSkip(outBytes, count); // identical varint encoding to skip
 
         /// <summary>Append a skip count in 1-byte or 2-byte form.</summary>
         private static void AppendSkip(List<byte> outBytes, int count)

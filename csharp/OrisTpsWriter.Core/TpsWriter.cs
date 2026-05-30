@@ -243,17 +243,42 @@ namespace OrisTpsWriter.Core
             // Index pages
             if (includeIndexPage && indexes.Count > 0 && dataRows.Count > 0)
             {
-                // Sort by row bytes (B-tree-ish order)
-                var sortedRows = new List<(int RecordNumber, byte[] Row)>(dataRows);
-                sortedRows.Sort((a, b) => CompareBytes(a.Row, b.Row));
-
-                var indexRecs = new List<byte[]>();
-                foreach (var (rn, row) in sortedRows)
+                // Key bytes = only the index's key fields concatenated (not the
+                // whole record). This is the real Clarion layout and keeps index
+                // pages small. Falls back to the full record if a key field can't
+                // be resolved (defensive).
+                var keyIndex = indexes[0];
+                byte[] BuildKey(byte[] row)
                 {
-                    byte[] keyData = new byte[recordLength];
-                    Array.Copy(row, keyData, Math.Min(row.Length, recordLength));
-                    indexRecs.Add(BuildIndexRecord(tableNumber, 0, keyData, rn));
+                    if (keyIndex.KeyFields == null || keyIndex.KeyFields.Count == 0)
+                    {
+                        var full = new byte[recordLength];
+                        Array.Copy(row, full, Math.Min(row.Length, recordLength));
+                        return full;
+                    }
+                    using var ms = new MemoryStream();
+                    foreach (var (fieldIdx, _) in keyIndex.KeyFields)
+                    {
+                        if (fieldIdx < 0 || fieldIdx >= fields.Count) continue;
+                        var f = fields[fieldIdx];
+                        var part = new byte[f.Length];
+                        int avail = (f.Offset >= 0 && f.Offset < row.Length) ? row.Length - f.Offset : 0;
+                        int copy = Math.Max(0, Math.Min(f.Length, avail));
+                        if (copy > 0) Array.Copy(row, f.Offset, part, 0, copy);
+                        ms.Write(part, 0, part.Length);
+                    }
+                    return ms.ToArray();
                 }
+
+                // Sort by the key bytes (B-tree order)
+                var keyed = dataRows
+                    .Select(r => (r.RecordNumber, Key: BuildKey(r.Row)))
+                    .ToList();
+                keyed.Sort((a, b) => CompareBytes(a.Key, b.Key));
+
+                var indexRecs = new List<byte[]>(keyed.Count);
+                foreach (var (rn, key) in keyed)
+                    indexRecs.Add(BuildIndexRecord(tableNumber, 0, key, rn));
 
                 int j = 0;
                 while (j < indexRecs.Count)
