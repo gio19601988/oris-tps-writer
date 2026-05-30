@@ -179,6 +179,26 @@ namespace OrisTpsWriter
             }
         }
 
+        /// <summary>
+        /// Column display name: drop the "TABLE:" prefix (everything up to and
+        /// including the first ':') so the grid shows only the field name.
+        /// </summary>
+        private static string FieldDisplayName(string fieldName)
+        {
+            if (string.IsNullOrEmpty(fieldName)) return fieldName;
+            int colon = fieldName.IndexOf(':');
+            return colon >= 0 && colon < fieldName.Length - 1
+                ? fieldName.Substring(colon + 1)
+                : fieldName;
+        }
+
+        /// <summary>
+        /// Fields shown / exported. GROUP fields (0x16) are overlays that span
+        /// the same bytes as the individual fields after them, so including one
+        /// would merge several real fields into a single column — skip them.
+        /// </summary>
+        private static bool IsDisplayField(TpsField f) => f.Type != FieldType.Group;
+
         private void RefreshReaderGrid()
         {
             _readerTable = new DataTable();
@@ -186,15 +206,16 @@ namespace OrisTpsWriter
 
             if (_openedTable != null)
             {
+                var fields = _openedTable.Fields.Where(IsDisplayField).ToList();
                 // Use TpsTable — decoded Georgian values
-                foreach (var f in _openedTable.Fields)
+                foreach (var f in fields)
                     _readerTable.Columns.Add(f.Name, typeof(string));
 
                 foreach (var (recNum, values) in _openedTable.AllRows())
                 {
                     var row = _readerTable.NewRow();
                     row["#"] = recNum;
-                    foreach (var f in _openedTable.Fields)
+                    foreach (var f in fields)
                         row[f.Name] = values.TryGetValue(f.Name, out var v) ? v?.ToString() ?? "" : "";
                     _readerTable.Rows.Add(row);
                 }
@@ -202,7 +223,8 @@ namespace OrisTpsWriter
             else
             {
                 // Fallback: raw bytes (no TpsTable loaded)
-                foreach (var f in _readerFields)
+                var fields = _readerFields.Where(IsDisplayField).ToList();
+                foreach (var f in fields)
                     _readerTable.Columns.Add(f.Name, typeof(string));
 
                 var enc = Encoding.GetEncoding(1252);
@@ -210,7 +232,7 @@ namespace OrisTpsWriter
                 {
                     var row = _readerTable.NewRow();
                     row["#"] = kvp.Key;
-                    foreach (var f in _readerFields)
+                    foreach (var f in fields)
                     {
                         int end = f.Offset + f.Length;
                         if (end > kvp.Value.Length) continue;
@@ -236,7 +258,9 @@ namespace OrisTpsWriter
 
                 GridReader.Columns.Add(new DataGridTextColumn
                 {
-                    Header  = col.ColumnName,
+                    // Header shows only the field name; binding uses the real
+                    // (prefixed) column key so values still resolve correctly.
+                    Header  = col.ColumnName == "#" ? "#" : FieldDisplayName(col.ColumnName),
                     Binding = new System.Windows.Data.Binding($"[{col.ColumnName}]"),
                     Width   = width,
                     MinWidth = 40,
@@ -535,7 +559,8 @@ namespace OrisTpsWriter
             };
             if (dlg.ShowDialog() != true) return;
 
-            var fields = _openedTable.Fields;
+            // Skip GROUP overlay fields so columns don't merge (matches the grid).
+            var fields = _openedTable.Fields.Where(IsDisplayField).ToList();
             var rows   = _openedTable.AllRows().ToList();
             string path = dlg.FileName;
             string ext  = Path.GetExtension(path).ToLowerInvariant();
@@ -581,11 +606,11 @@ namespace OrisTpsWriter
             using var wb = new XLWorkbook();
             var ws = wb.AddWorksheet("Data");
 
-            // Header row
+            // Header row — field name only (drop the "TABLE:" prefix)
             for (int c = 0; c < fields.Count; c++)
             {
                 var cell = ws.Cell(1, c + 1);
-                cell.Value = fields[c].Name;
+                cell.Value = FieldDisplayName(fields[c].Name);
                 cell.Style.Font.Bold            = true;
                 cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#2D6A4F");
                 cell.Style.Font.FontColor       = XLColor.White;
@@ -615,7 +640,7 @@ namespace OrisTpsWriter
             IProgress<double> progress = null)
         {
             var sb = new StringBuilder();
-            sb.AppendLine(string.Join(",", fields.Select(f => CsvEscape(f.Name))));
+            sb.AppendLine(string.Join(",", fields.Select(f => CsvEscape(FieldDisplayName(f.Name)))));
             int done = 0, lastPct = -1;
             foreach (var (_, values) in rows)
             {
@@ -657,7 +682,7 @@ namespace OrisTpsWriter
                 catch { /* record not found */ }
             }
 
-            foreach (var f in _openedTable.Fields)
+            foreach (var f in _openedTable.Fields.Where(IsDisplayField))
             {
                 var cell = new StackPanel
                 {
@@ -668,7 +693,7 @@ namespace OrisTpsWriter
 
                 cell.Children.Add(new TextBlock
                 {
-                    Text       = f.Name,
+                    Text       = FieldDisplayName(f.Name),
                     FontSize   = 11,
                     Foreground = (Brush)FindResource("Muted"),
                     Margin     = new Thickness(0, 0, 0, 3)
@@ -701,8 +726,10 @@ namespace OrisTpsWriter
         {
             if (_openedTable == null) return;
             var values = new Dictionary<string, object>();
-            for (int i = 0; i < _openedTable.Fields.Count && i < _editBoxes.Count; i++)
-                values[_openedTable.Fields[i].Name] = _editBoxes[i].Text;
+            // Must mirror BuildEditPanel's field order (GROUP overlays skipped).
+            var editFields = _openedTable.Fields.Where(IsDisplayField).ToList();
+            for (int i = 0; i < editFields.Count && i < _editBoxes.Count; i++)
+                values[editFields[i].Name] = _editBoxes[i].Text;
 
             try
             {
@@ -1125,11 +1152,14 @@ namespace OrisTpsWriter
                             if (wsn.Length > 31) wsn = wsn[..31];
                             var ws = wb.AddWorksheet(wsn);
 
-                            // Header row
-                            for (int c = 0; c < tbl.Fields.Count; c++)
+                            // Skip GROUP overlays so columns don't merge.
+                            var flds = tbl.Fields.Where(IsDisplayField).ToList();
+
+                            // Header row — field name only (drop "TABLE:" prefix)
+                            for (int c = 0; c < flds.Count; c++)
                             {
                                 var cell = ws.Cell(1, c + 1);
-                                cell.Value = tbl.Fields[c].Name;
+                                cell.Value = FieldDisplayName(flds[c].Name);
                                 cell.Style.Font.Bold            = true;
                                 cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#2D6A4F");
                                 cell.Style.Font.FontColor       = XLColor.White;
@@ -1141,9 +1171,9 @@ namespace OrisTpsWriter
                             int r = 2, done = 0, lastPct = -1;
                             foreach (var (_, values) in allRows)
                             {
-                                for (int c = 0; c < tbl.Fields.Count; c++)
+                                for (int c = 0; c < flds.Count; c++)
                                 {
-                                    string fn = tbl.Fields[c].Name;
+                                    string fn = flds[c].Name;
                                     ws.Cell(r, c + 1).Value =
                                         values.TryGetValue(fn, out var v) ? v?.ToString() ?? "" : "";
                                 }
