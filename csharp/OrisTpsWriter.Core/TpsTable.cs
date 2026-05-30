@@ -60,7 +60,15 @@ namespace OrisTpsWriter.Core
             foreach (var f in Fields.OrderBy(f => f.Offset))
             {
                 values.TryGetValue(f.Name, out object val);
-                if (NumericSizes.TryGetValue(f.Type, out int size))
+                if (f.Type == FieldType.Date)
+                {
+                    ms.Write(TpsValue.EncodeDate(val), 0, 4);
+                }
+                else if (f.Type == FieldType.Time)
+                {
+                    ms.Write(TpsValue.EncodeTime(val), 0, 4);
+                }
+                else if (NumericSizes.TryGetValue(f.Type, out int size))
                 {
                     long n = val == null || (val is string s && s == "")
                         ? 0 : Convert.ToInt64(val);
@@ -83,7 +91,15 @@ namespace OrisTpsWriter.Core
             {
                 var chunk = new byte[f.Length];
                 Array.Copy(row, f.Offset, chunk, 0, Math.Min(f.Length, row.Length - f.Offset));
-                if (NumericSizes.TryGetValue(f.Type, out int size))
+                if (f.Type == FieldType.Date)
+                {
+                    outDict[f.Name] = TpsValue.DecodeDate(chunk);
+                }
+                else if (f.Type == FieldType.Time)
+                {
+                    outDict[f.Name] = TpsValue.DecodeTime(chunk);
+                }
+                else if (NumericSizes.TryGetValue(f.Type, out int size))
                 {
                     long n = 0;
                     for (int i = 0; i < size; i++) n |= (long)chunk[i] << (8 * i);

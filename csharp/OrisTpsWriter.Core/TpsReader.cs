@@ -173,6 +173,10 @@ namespace OrisTpsWriter.Core
             }
         }
 
+        private static bool IsKnownFieldType(byte t) =>
+            t is 0x01 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07
+              or 0x08 or 0x09 or 0x0A or 0x12 or 0x13 or 0x14 or 0x16;
+
         private void ParseTableDef(byte[] body)
         {
             if (body.Length < 10) return;
@@ -181,28 +185,53 @@ namespace OrisTpsWriter.Core
             int nFields = U16(body, 4);
             // memos @6, indexes @8
             int pos = 10;
-            for (int i = 0; i < nFields && pos < body.Length; i++)
+            for (int i = 0; i < nFields; i++)
             {
+                // Bounds: type(1)+offset(2)+name(≥1)+elements(2)+length(2)+flags(2)+index(2)
+                if (pos + 1 > body.Length) break;
                 byte ftype = body[pos]; pos++;
+
+                if (pos + 2 > body.Length) break;
                 int offset = U16(body, pos); pos += 2;
+
                 int zi = Array.IndexOf(body, (byte)0, pos);
+                if (zi < 0) break;
                 string name = System.Text.Encoding.ASCII.GetString(body, pos, zi - pos);
                 pos = zi + 1;
-                int elements = U16(body, pos); pos += 2;
-                int length = U16(body, pos); pos += 2;
-                int flags = U16(body, pos); pos += 2;
-                int index = U16(body, pos); pos += 2;
 
-                if (ftype == 0x0A) pos += 2; // BCD
-                else if (ftype == 0x12 || ftype == 0x13 || ftype == 0x14)
+                if (pos + 8 > body.Length) break;
+                int elements = U16(body, pos); pos += 2;
+                int length   = U16(body, pos); pos += 2;
+                int flags    = U16(body, pos); pos += 2;
+                int index    = U16(body, pos); pos += 2;
+
+                // type-specific extras
+                if (ftype == 0x0A) // BCD: digitsAfterDecimal(1) + lengthOfElement(1)
+                {
+                    pos += 2;
+                }
+                else if (ftype == 0x12 || ftype == 0x13 || ftype == 0x14) // STRING/CSTRING/PSTRING
                 {
                     pos += 2; // stringLength
+                    // stringMask: zero-terminated. Consume up to and incl. the 0x00.
                     int zi2 = Array.IndexOf(body, (byte)0, pos);
-                    if (zi2 == pos) pos += 2;       // empty mask: 0x00 + extra
-                    else pos = zi2 + 1;
+                    pos = zi2 < 0 ? body.Length : zi2 + 1;
                 }
 
                 Fields.Add(new TpsField(name, ftype, offset, length, elements, flags, index));
+
+                // Self-correct string-mask padding drift: some writers pad an empty
+                // string-mask with an extra 0x00 (e.g. ARN.TPS) while standard Clarion
+                // uses a single terminator. Skip up to 2 trailing 0x00 padding bytes if
+                // doing so aligns the next field on a valid type byte.
+                if (i < nFields - 1 && pos < body.Length && !IsKnownFieldType(body[pos]))
+                {
+                    int probe = pos, skipped = 0;
+                    while (probe < body.Length && skipped < 2 && body[probe] == 0x00)
+                    { probe++; skipped++; }
+                    if (probe < body.Length && IsKnownFieldType(body[probe]))
+                        pos = probe;
+                }
             }
         }
     }
