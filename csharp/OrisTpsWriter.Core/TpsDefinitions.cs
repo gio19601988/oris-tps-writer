@@ -69,8 +69,8 @@ namespace OrisTpsWriter.Core
             // type-specific extras
             if (Type == FieldType.Bcd)
             {
-                w.Write((byte)0); // bcdDigitsAfterDecimalPoint
-                w.Write((byte)0); // bcdLengthOfElement
+                w.Write((byte)BcdDigits);                              // bcdDigitsAfterDecimalPoint
+                w.Write((byte)(BcdLength != 0 ? BcdLength : Length));  // bcdLengthOfElement
             }
             else if (Type == FieldType.String || Type == FieldType.CString || Type == FieldType.PString)
             {

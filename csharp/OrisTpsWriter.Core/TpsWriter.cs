@@ -32,6 +32,12 @@ namespace OrisTpsWriter.Core
 
         public const int DefaultRecordsPerPage = 16;
 
+        // A page's physical size is stored as a uint16 (max 65535). Keep the
+        // uncompressed payload comfortably under that so wide records (e.g. a
+        // 4000-byte row) never overflow the page-size field. Pages are filled
+        // by this byte budget, not just by DefaultRecordsPerPage.
+        public const int PagePayloadBudget = 0xF000; // 61440
+
         // -------------------------------------------------------------------
         // Little/Big-endian helpers
         // -------------------------------------------------------------------
@@ -204,20 +210,34 @@ namespace OrisTpsWriter.Core
             var layout = new List<(byte[] Bytes, int Start, int End, string Kind)>();
             int cursor = HeaderSize;
 
-            // Data pages
-            for (int i = 0; i < dataRows.Count; i += recordsPerPage)
+            // Data pages — fill by record count AND a byte budget so wide rows
+            // never push a page past the uint16 page-size limit.
             {
-                var chunk = dataRows.GetRange(i, Math.Min(recordsPerPage, dataRows.Count - i));
-                var recs = new List<byte[]>();
-                foreach (var (rn, row) in chunk)
-                    recs.Add(BuildDataRecord(tableNumber, rn, row));
+                int i = 0;
+                while (i < dataRows.Count)
+                {
+                    var recs = new List<byte[]>();
+                    int payload = 0;
+                    while (i < dataRows.Count &&
+                           recs.Count < recordsPerPage &&
+                           (recs.Count == 0 || payload < PagePayloadBudget))
+                    {
+                        var (rn, row) = dataRows[i];
+                        byte[] rec = BuildDataRecord(tableNumber, rn, row);
+                        // always place at least one record, even if oversized
+                        if (recs.Count > 0 && payload + rec.Length > PagePayloadBudget) break;
+                        recs.Add(rec);
+                        payload += rec.Length;
+                        i++;
+                    }
 
-                byte[] page = BuildPage(recs, cursor);
-                int endRaw = cursor + page.Length;
-                int end = AlignUp(endRaw);
-                page = Pad(page, end - endRaw);
-                layout.Add((page, cursor, end, "data"));
-                cursor = end;
+                    byte[] page = BuildPage(recs, cursor);
+                    int endRaw = cursor + page.Length;
+                    int end = AlignUp(endRaw);
+                    page = Pad(page, end - endRaw);
+                    layout.Add((page, cursor, end, "data"));
+                    cursor = end;
+                }
             }
 
             // Index pages
@@ -235,9 +255,21 @@ namespace OrisTpsWriter.Core
                     indexRecs.Add(BuildIndexRecord(tableNumber, 0, keyData, rn));
                 }
 
-                for (int i = 0; i < indexRecs.Count; i += recordsPerPage)
+                int j = 0;
+                while (j < indexRecs.Count)
                 {
-                    var chunk = indexRecs.GetRange(i, Math.Min(recordsPerPage, indexRecs.Count - i));
+                    var chunk = new List<byte[]>();
+                    int payload = 0;
+                    while (j < indexRecs.Count &&
+                           chunk.Count < recordsPerPage &&
+                           (chunk.Count == 0 || payload < PagePayloadBudget))
+                    {
+                        byte[] rec = indexRecs[j];
+                        if (chunk.Count > 0 && payload + rec.Length > PagePayloadBudget) break;
+                        chunk.Add(rec);
+                        payload += rec.Length;
+                        j++;
+                    }
                     byte[] page = BuildPage(chunk, cursor);
                     int endRaw = cursor + page.Length;
                     int end = AlignUp(endRaw);

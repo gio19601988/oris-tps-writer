@@ -15,45 +15,65 @@ namespace OrisTpsWriter.Core
     public static class TpsRle
     {
         /// <summary>
-        /// RLE-encode raw data as a single 'skip' block (no actual compression).
+        /// Largest run a single skip block can represent. The 2-byte skip form
+        /// encodes at most ((255&lt;&lt;7)&amp;0xFF00) + 0x7F + 0x80 = 32767 bytes.
+        /// We cap chunks a little lower at a clean boundary for headroom.
+        /// </summary>
+        public const int MaxSkipRun = 0x7F00; // 32512
+
+        /// <summary>
+        /// RLE-encode raw data with no actual compression. Data larger than a
+        /// single skip block is emitted as several skip blocks chained with a
+        /// zero-length repeat (0x00) between them — which Unwrap (and the real
+        /// Clarion engine) treats as "repeat last byte 0 times", a no-op. This
+        /// removes the old single-block size limit so wide/large pages encode.
         /// </summary>
         public static byte[] Wrap(byte[] raw)
         {
             int n = raw.Length;
-            var outBytes = new List<byte>(n + 4);
+            var outBytes = new List<byte>(n + 8);
 
-            if (n <= 0x7F)
+            int pos = 0;
+            bool first = true;
+            do
             {
-                // 1-byte skip
-                outBytes.Add((byte)n);
-                outBytes.AddRange(raw);
+                int chunk = Math.Min(MaxSkipRun, n - pos);
+
+                // separator repeat (0 times) between consecutive skip blocks
+                if (!first) outBytes.Add(0x00);
+                first = false;
+
+                AppendSkip(outBytes, chunk);
+                for (int i = 0; i < chunk; i++) outBytes.Add(raw[pos + i]);
+                pos += chunk;
             }
-            else
-            {
-                // 2-byte skip — find msb such that:
-                //   ((msb << 7) & 0xFF00) + (n & 0x7F) + 0x80 * (msb & 1) == n
-                int lsb = n & 0x7F;
-                int target = n - lsb;
-                bool found = false;
-                for (int msb = 0; msb < 256; msb++)
-                {
-                    int computed = ((msb << 7) & 0x00FF00) + 0x80 * (msb & 0x01);
-                    if (computed == target)
-                    {
-                        outBytes.Add((byte)(0x80 | lsb));
-                        outBytes.Add((byte)msb);
-                        outBytes.AddRange(raw);
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found)
-                    throw new InvalidOperationException(
-                        $"Cannot RLE-encode data of size {n} as a single skip block. " +
-                        "გამოიყენე multi-page split.");
-            }
+            while (pos < n);
 
             return outBytes.ToArray();
+        }
+
+        /// <summary>Append a skip count in 1-byte or 2-byte form.</summary>
+        private static void AppendSkip(List<byte> outBytes, int count)
+        {
+            if (count <= 0x7F)
+            {
+                outBytes.Add((byte)count);
+                return;
+            }
+            int lsb = count & 0x7F;
+            int target = count - lsb;
+            for (int msb = 0; msb < 256; msb++)
+            {
+                int computed = ((msb << 7) & 0x00FF00) + 0x80 * (msb & 0x01);
+                if (computed == target)
+                {
+                    outBytes.Add((byte)(0x80 | lsb));
+                    outBytes.Add((byte)msb);
+                    return;
+                }
+            }
+            // Unreachable: chunks are capped at MaxSkipRun, always encodable.
+            throw new InvalidOperationException($"Skip count {count} not encodable.");
         }
 
         /// <summary>
