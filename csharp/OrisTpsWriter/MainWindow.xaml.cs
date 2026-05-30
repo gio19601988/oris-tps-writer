@@ -6,6 +6,7 @@ using System.Data;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -43,6 +44,7 @@ namespace OrisTpsWriter
         {
             private bool   _isChecked = true;
             private string _status    = "–";
+            private double _progress  = 0;
 
             public bool IsChecked
             {
@@ -56,6 +58,17 @@ namespace OrisTpsWriter
                 get => _status;
                 set { _status = value; OnPropChanged(nameof(Status)); }
             }
+            public double Progress
+            {
+                get => _progress;
+                set
+                {
+                    _progress = value;
+                    OnPropChanged(nameof(Progress));
+                    OnPropChanged(nameof(ProgressText));
+                }
+            }
+            public string ProgressText => $"{_progress:0}%";
 
             public event PropertyChangedEventHandler PropertyChanged;
             private void OnPropChanged(string name) =>
@@ -287,7 +300,7 @@ namespace OrisTpsWriter
         // ────────────────────────────────────────────────────────
         // Bulk import from Excel / CSV → opened table
         // ────────────────────────────────────────────────────────
-        private void BtnImportData_Click(object sender, RoutedEventArgs e)
+        private async void BtnImportData_Click(object sender, RoutedEventArgs e)
         {
             if (_openedTable == null)
             { TxtReaderStatus.Text = "ჯერ გახსენი TPS ფაილი."; return; }
@@ -301,50 +314,109 @@ namespace OrisTpsWriter
             };
             if (dlg.ShowDialog() != true) return;
 
+            BeginReaderProgress("📥 იმპორტი მიმდინარეობს…");
+            SetCrudEnabled(false);
             try
             {
-                string ext  = Path.GetExtension(dlg.FileName).ToLowerInvariant();
-                var rows    = ext == ".csv"
-                    ? ReadCsvRows(dlg.FileName)
-                    : ReadXlsxRows(dlg.FileName);
+                string ext = Path.GetExtension(dlg.FileName).ToLowerInvariant();
+                string file = dlg.FileName;
+
+                // Read file off the UI thread.
+                var rows = await Task.Run(() =>
+                    ext == ".csv" ? ReadCsvRows(file) : ReadXlsxRows(file));
 
                 if (rows.Count == 0)
-                { TxtReaderStatus.Text = "ფაილი ცარიელია."; return; }
+                { EndReaderProgress("ფაილი ცარიელია."); return; }
 
-                // Header detection: does the first row match field names?
-                var fieldNames = _openedTable.Fields.Select(f => f.Name).ToList();
+                var fieldNames   = _openedTable.Fields.Select(f => f.Name).ToList();
                 int[] colToField = MapColumns(rows[0], fieldNames, out bool hasHeader);
-                int startRow = hasHeader ? 1 : 0;
+                int startRow     = hasHeader ? 1 : 0;
 
-                var toInsert = new List<Dictionary<string, object>>();
+                int total = rows.Count - startRow;
+                var toInsert = new List<Dictionary<string, object>>(Math.Max(0, total));
                 for (int r = startRow; r < rows.Count; r++)
                 {
                     var cells = rows[r];
-                    if (cells.All(string.IsNullOrWhiteSpace)) continue;
-                    var values = new Dictionary<string, object>();
-                    for (int c = 0; c < cells.Length; c++)
+                    if (!cells.All(string.IsNullOrWhiteSpace))
                     {
-                        int fi = colToField[c];
-                        if (fi >= 0) values[fieldNames[fi]] = cells[c];
+                        var values = new Dictionary<string, object>();
+                        for (int c = 0; c < cells.Length; c++)
+                        {
+                            int fi = colToField[c];
+                            if (fi >= 0) values[fieldNames[fi]] = cells[c];
+                        }
+                        toInsert.Add(values);
                     }
-                    toInsert.Add(values);
+                    await ReportReaderProgressThrottled(r - startRow + 1, total);
                 }
 
                 if (toInsert.Count == 0)
-                { TxtReaderStatus.Text = "იმპორტისთვის ჩანაწერი ვერ მოიძებნა."; return; }
+                { EndReaderProgress("იმპორტისთვის ჩანაწერი ვერ მოიძებნა."); return; }
 
                 var added = _openedTable.InsertMany(toInsert);
+                ReportReaderProgress(100);
                 RefreshReaderGrid();
-                TxtReaderStatus.Text =
+                EndReaderProgress(
                     $"📥 იმპორტირდა {added.Count} ჩანაწერი " +
                     $"({(hasHeader ? "header-ით" : "პოზიციურად")}). " +
-                    $"(💾 შენახვა — ცვლილებები ფაილში)";
+                    $"(💾 შენახვა — ცვლილებები ფაილში)");
             }
             catch (Exception ex)
             {
+                EndReaderProgress(null);
                 MessageBox.Show(ex.Message, "იმპორტის შეცდომა",
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
+            finally
+            {
+                SetCrudEnabled(true);
+            }
+        }
+
+        // ── Reader progress-bar helpers (Tab 1) ──────────────────
+        private int _lastReaderPct = -1;
+
+        private void BeginReaderProgress(string message)
+        {
+            _lastReaderPct = -1;
+            ReaderProgressBox.Visibility = Visibility.Visible;
+            ReportReaderProgress(0);
+            if (message != null) TxtReaderStatus.Text = message;
+        }
+
+        private void ReportReaderProgress(double pct)
+        {
+            pct = Math.Clamp(pct, 0, 100);
+            PrgReader.Value = pct;
+            TxtReaderProgress.Text = $"{pct:0}%";
+        }
+
+        /// <summary>Updates the bar only when the integer % changes, yielding so the UI repaints.</summary>
+        private async Task ReportReaderProgressThrottled(int done, int total)
+        {
+            int pct = total <= 0 ? 100 : (int)(done * 100.0 / total);
+            if (pct != _lastReaderPct)
+            {
+                _lastReaderPct = pct;
+                ReportReaderProgress(pct);
+                await Task.Yield();
+            }
+        }
+
+        private void EndReaderProgress(string finalMessage)
+        {
+            ReaderProgressBox.Visibility = Visibility.Collapsed;
+            if (finalMessage != null) TxtReaderStatus.Text = finalMessage;
+        }
+
+        private void SetCrudEnabled(bool on)
+        {
+            BtnInsert.IsEnabled     = on;
+            BtnUpdate.IsEnabled     = on;
+            BtnDelete.IsEnabled     = on;
+            BtnImportData.IsEnabled = on;
+            BtnExportData.IsEnabled = on;
+            BtnSaveTps.IsEnabled    = on;
         }
 
         /// <summary>
@@ -440,7 +512,7 @@ namespace OrisTpsWriter
         // Export opened table → Excel / CSV (current in-memory state,
         // includes any INSERT / UPDATE / DELETE done since file open)
         // ────────────────────────────────────────────────────────
-        private void BtnExportData_Click(object sender, RoutedEventArgs e)
+        private async void BtnExportData_Click(object sender, RoutedEventArgs e)
         {
             if (_openedTable == null)
             { TxtReaderStatus.Text = "ჯერ გახსენი TPS ფაილი."; return; }
@@ -457,35 +529,48 @@ namespace OrisTpsWriter
             };
             if (dlg.ShowDialog() != true) return;
 
+            var fields = _openedTable.Fields;
+            var rows   = _openedTable.AllRows().ToList();
+            string path = dlg.FileName;
+            string ext  = Path.GetExtension(path).ToLowerInvariant();
+
+            BeginReaderProgress("📤 ექსპორტი მიმდინარეობს…");
+            SetCrudEnabled(false);
             try
             {
-                var fields = _openedTable.Fields;
-                var rows   = _openedTable.AllRows().ToList();
-                string ext = Path.GetExtension(dlg.FileName).ToLowerInvariant();
+                // marshals % updates back to the UI thread
+                var progress = new Progress<double>(ReportReaderProgress);
+                await Task.Run(() =>
+                {
+                    if (ext == ".csv") ExportCsv(path, fields, rows, progress);
+                    else               ExportXlsx(path, fields, rows, progress);
+                });
 
-                if (ext == ".csv")
-                    ExportCsv(dlg.FileName, fields, rows);
-                else
-                    ExportXlsx(dlg.FileName, fields, rows);
-
-                TxtReaderStatus.Text =
-                    $"📤 ექსპორტი დასრულდა: {Path.GetFileName(dlg.FileName)} " +
-                    $"({rows.Count} ჩანაწერი · {fields.Count} ფილდი)";
+                ReportReaderProgress(100);
+                EndReaderProgress(
+                    $"📤 ექსპორტი დასრულდა: {Path.GetFileName(path)} " +
+                    $"({rows.Count} ჩანაწერი · {fields.Count} ფილდი)");
                 MessageBox.Show(
-                    $"ფაილი შენახულია:\n{dlg.FileName}\n\n" +
+                    $"ფაილი შენახულია:\n{path}\n\n" +
                     $"ჩანაწერები: {rows.Count}\nფილდები: {fields.Count}",
                     "ექსპორტი", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
+                EndReaderProgress(null);
                 MessageBox.Show(ex.Message, "ექსპორტის შეცდომა",
                     MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                SetCrudEnabled(true);
             }
         }
 
         private static void ExportXlsx(
             string path, List<TpsField> fields,
-            List<(int RecordNumber, Dictionary<string, object> Values)> rows)
+            List<(int RecordNumber, Dictionary<string, object> Values)> rows,
+            IProgress<double> progress = null)
         {
             using var wb = new XLWorkbook();
             var ws = wb.AddWorksheet("Data");
@@ -501,34 +586,43 @@ namespace OrisTpsWriter
                 cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             }
 
-            // Data rows
-            int r = 2;
+            // Data rows — reserve last 5% for the file write
+            int r = 2, done = 0, lastPct = -1;
             foreach (var (_, values) in rows)
             {
                 for (int c = 0; c < fields.Count; c++)
                     ws.Cell(r, c + 1).Value =
                         values.TryGetValue(fields[c].Name, out var v) ? v?.ToString() ?? "" : "";
-                r++;
+                r++; done++;
+                int pct = rows.Count == 0 ? 95 : (int)(done * 95.0 / rows.Count);
+                if (pct != lastPct) { lastPct = pct; progress?.Report(pct); }
             }
             ws.SheetView.FreezeRows(1);
             ws.Columns().AdjustToContents();
             wb.SaveAs(path);
+            progress?.Report(100);
         }
 
         private static void ExportCsv(
             string path, List<TpsField> fields,
-            List<(int RecordNumber, Dictionary<string, object> Values)> rows)
+            List<(int RecordNumber, Dictionary<string, object> Values)> rows,
+            IProgress<double> progress = null)
         {
             var sb = new StringBuilder();
             sb.AppendLine(string.Join(",", fields.Select(f => CsvEscape(f.Name))));
+            int done = 0, lastPct = -1;
             foreach (var (_, values) in rows)
             {
                 var cells = fields.Select(f =>
                     CsvEscape(values.TryGetValue(f.Name, out var v) ? v?.ToString() ?? "" : ""));
                 sb.AppendLine(string.Join(",", cells));
+                done++;
+                int pct = rows.Count == 0 ? 95 : (int)(done * 95.0 / rows.Count);
+                if (pct != lastPct) { lastPct = pct; progress?.Report(pct); }
             }
             // UTF-8 with BOM so Excel opens Georgian text correctly
             File.WriteAllText(path, sb.ToString(), new UTF8Encoding(true));
+            progress?.Report(100);
         }
 
         private static string CsvEscape(string s)
@@ -979,7 +1073,7 @@ namespace OrisTpsWriter
             GridExport.Items.Refresh();
         }
 
-        private void BtnExportMulti_Click(object sender, RoutedEventArgs e)
+        private async void BtnExportMulti_Click(object sender, RoutedEventArgs e)
         {
             var checked_ = _exportFiles.Where(f => f.IsChecked).ToList();
             if (!checked_.Any())
@@ -996,61 +1090,78 @@ namespace OrisTpsWriter
             };
             if (dlg.ShowDialog() != true) return;
 
+            // Reset progress/status for the run.
+            foreach (var f in checked_) { f.Progress = 0; f.Status = "⏳ რიგში…"; }
+            string outPath = dlg.FileName;
             int ok = 0, fail = 0;
+
+            // Progress<T> marshals each report back to the UI thread.
+            var progress = new Progress<(ExportFileRow Row, double Pct, string Status)>(p =>
+            {
+                p.Row.Progress = p.Pct;
+                if (p.Status != null) p.Row.Status = p.Status;
+            });
+            var report = (IProgress<(ExportFileRow, double, string)>)progress;
+
+            TxtExportStatus.Text = "ექსპორტი მიმდინარეობს…";
             try
             {
-                using var wb = new XLWorkbook();
-
-                foreach (var fileRow in checked_)
+                await Task.Run(() =>
                 {
-                    try
+                    using var wb = new XLWorkbook();
+                    foreach (var fileRow in checked_)
                     {
-                        var tbl    = TpsTable.Open(fileRow.FullPath);
-                        string wsn = Path.GetFileNameWithoutExtension(fileRow.FileName);
-                        if (wsn.Length > 31) wsn = wsn[..31];
-                        var ws = wb.AddWorksheet(wsn);
-
-                        // Header row
-                        for (int c = 0; c < tbl.Fields.Count; c++)
+                        try
                         {
-                            var cell = ws.Cell(1, c + 1);
-                            cell.Value = tbl.Fields[c].Name;
-                            cell.Style.Font.Bold              = true;
-                            cell.Style.Fill.BackgroundColor   = XLColor.FromHtml("#2D6A4F");
-                            cell.Style.Font.FontColor         = XLColor.White;
-                            cell.Style.Alignment.Horizontal   = XLAlignmentHorizontalValues.Center;
-                        }
+                            report.Report((fileRow, 5, "⏳ მუშავდება…"));
+                            var tbl    = TpsTable.Open(fileRow.FullPath);
+                            string wsn = Path.GetFileNameWithoutExtension(fileRow.FileName);
+                            if (wsn.Length > 31) wsn = wsn[..31];
+                            var ws = wb.AddWorksheet(wsn);
 
-                        // Data rows
-                        int r = 2;
-                        foreach (var (_, values) in tbl.AllRows())
-                        {
+                            // Header row
                             for (int c = 0; c < tbl.Fields.Count; c++)
                             {
-                                string fn = tbl.Fields[c].Name;
-                                ws.Cell(r, c + 1).Value =
-                                    values.TryGetValue(fn, out var v) ? v?.ToString() ?? "" : "";
+                                var cell = ws.Cell(1, c + 1);
+                                cell.Value = tbl.Fields[c].Name;
+                                cell.Style.Font.Bold            = true;
+                                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#2D6A4F");
+                                cell.Style.Font.FontColor       = XLColor.White;
+                                cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
                             }
-                            r++;
+
+                            // Data rows — 5%‥95% spans the row writing
+                            var allRows = tbl.AllRows().ToList();
+                            int r = 2, done = 0, lastPct = -1;
+                            foreach (var (_, values) in allRows)
+                            {
+                                for (int c = 0; c < tbl.Fields.Count; c++)
+                                {
+                                    string fn = tbl.Fields[c].Name;
+                                    ws.Cell(r, c + 1).Value =
+                                        values.TryGetValue(fn, out var v) ? v?.ToString() ?? "" : "";
+                                }
+                                r++; done++;
+                                int pct = allRows.Count == 0 ? 95 : 5 + (int)(done * 90.0 / allRows.Count);
+                                if (pct != lastPct) { lastPct = pct; report.Report((fileRow, pct, null)); }
+                            }
+                            ws.Columns().AdjustToContents();
+
+                            report.Report((fileRow, 100, $"✅  {tbl.Count} ჩანაწერი"));
+                            ok++;
                         }
-                        ws.Columns().AdjustToContents();
-
-                        fileRow.Status = $"✅  {tbl.Count} ჩანაწერი";
-                        ok++;
+                        catch (Exception ex)
+                        {
+                            report.Report((fileRow, 0, $"❌  {ex.Message}"));
+                            fail++;
+                        }
                     }
-                    catch (Exception ex)
-                    {
-                        fileRow.Status = $"❌  {ex.Message}";
-                        fail++;
-                    }
-                }
-
-                wb.SaveAs(dlg.FileName);
-                GridExport.Items.Refresh();
+                    wb.SaveAs(outPath);
+                });
 
                 TxtExportStatus.Text = $"ექსპორტი დასრულდა — {ok} წარმატება, {fail} შეცდომა.";
                 MessageBox.Show(
-                    $"Excel ფაილი შეიქმნა:\n{dlg.FileName}\n\n" +
+                    $"Excel ფაილი შეიქმნა:\n{outPath}\n\n" +
                     $"შიტები: {ok}   შეცდომა: {fail}",
                     "ექსპორტი", MessageBoxButton.OK, MessageBoxImage.Information);
             }

@@ -230,9 +230,21 @@
 
                     <!-- Row 4 — Status -->
                     <Border Grid.Row="4" Style="{StaticResource Card}" Margin="0,8,0,0" Padding="14,10">
-                        <TextBlock x:Name="TxtReaderStatus"
-                                   Text="ფაილი არ არის ჩატვირთული."
-                                   Foreground="{StaticResource Muted}" FontSize="12"/>
+                        <DockPanel>
+                            <Grid x:Name="ReaderProgressBox" DockPanel.Dock="Right"
+                                  Width="220" Margin="14,0,0,0" Visibility="Collapsed">
+                                <ProgressBar x:Name="PrgReader" Height="18" Minimum="0" Maximum="100"
+                                             Foreground="{StaticResource Accent}"/>
+                                <TextBlock x:Name="TxtReaderProgress" Text="0%"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           FontSize="11" FontWeight="SemiBold"
+                                           Foreground="{StaticResource Ink}"/>
+                            </Grid>
+                            <TextBlock x:Name="TxtReaderStatus"
+                                       Text="ფაილი არ არის ჩატვირთული."
+                                       Foreground="{StaticResource Muted}" FontSize="12"
+                                       VerticalAlignment="Center"/>
+                        </DockPanel>
                     </Border>
                 </Grid>
             </TabItem>
@@ -446,6 +458,21 @@
                                 </DataGridTemplateColumn>
                                 <DataGridTextColumn Header="ფაილი"    Binding="{Binding FileName}" Width="220" IsReadOnly="True"/>
                                 <DataGridTextColumn Header="სრული გზა" Binding="{Binding FullPath}" Width="*"   IsReadOnly="True"/>
+                                <DataGridTemplateColumn Header="პროგრესი" Width="150" CanUserSort="False">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="4,2">
+                                                <ProgressBar Height="16" Minimum="0" Maximum="100"
+                                                             Value="{Binding Progress}"
+                                                             Foreground="{StaticResource Accent}"/>
+                                                <TextBlock Text="{Binding ProgressText}"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                           FontSize="10" FontWeight="SemiBold"
+                                                           Foreground="{StaticResource Ink}"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
                                 <DataGridTextColumn Header="სტატუსი"  Binding="{Binding Status}"   Width="160" IsReadOnly="True"/>
                             </DataGrid.Columns>
                         </DataGrid>
