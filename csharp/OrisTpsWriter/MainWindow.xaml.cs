@@ -436,6 +436,109 @@ namespace OrisTpsWriter
             return fields.ToArray();
         }
 
+        // ────────────────────────────────────────────────────────
+        // Export opened table → Excel / CSV (current in-memory state,
+        // includes any INSERT / UPDATE / DELETE done since file open)
+        // ────────────────────────────────────────────────────────
+        private void BtnExportData_Click(object sender, RoutedEventArgs e)
+        {
+            if (_openedTable == null)
+            { TxtReaderStatus.Text = "ჯერ გახსენი TPS ფაილი."; return; }
+
+            string baseName = string.IsNullOrEmpty(_openedFilePath)
+                ? "export"
+                : Path.GetFileNameWithoutExtension(_openedFilePath);
+
+            var dlg = new SaveFileDialog
+            {
+                Filter   = "Excel ფაილი (*.xlsx)|*.xlsx|CSV ფაილი (*.csv)|*.csv",
+                FileName = baseName + ".xlsx",
+                Title    = "Excel ან CSV ფაილში ექსპორტი"
+            };
+            if (dlg.ShowDialog() != true) return;
+
+            try
+            {
+                var fields = _openedTable.Fields;
+                var rows   = _openedTable.AllRows().ToList();
+                string ext = Path.GetExtension(dlg.FileName).ToLowerInvariant();
+
+                if (ext == ".csv")
+                    ExportCsv(dlg.FileName, fields, rows);
+                else
+                    ExportXlsx(dlg.FileName, fields, rows);
+
+                TxtReaderStatus.Text =
+                    $"📤 ექსპორტი დასრულდა: {Path.GetFileName(dlg.FileName)} " +
+                    $"({rows.Count} ჩანაწერი · {fields.Count} ფილდი)";
+                MessageBox.Show(
+                    $"ფაილი შენახულია:\n{dlg.FileName}\n\n" +
+                    $"ჩანაწერები: {rows.Count}\nფილდები: {fields.Count}",
+                    "ექსპორტი", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "ექსპორტის შეცდომა",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private static void ExportXlsx(
+            string path, List<TpsField> fields,
+            List<(int RecordNumber, Dictionary<string, object> Values)> rows)
+        {
+            using var wb = new XLWorkbook();
+            var ws = wb.AddWorksheet("Data");
+
+            // Header row
+            for (int c = 0; c < fields.Count; c++)
+            {
+                var cell = ws.Cell(1, c + 1);
+                cell.Value = fields[c].Name;
+                cell.Style.Font.Bold            = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#2D6A4F");
+                cell.Style.Font.FontColor       = XLColor.White;
+                cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            }
+
+            // Data rows
+            int r = 2;
+            foreach (var (_, values) in rows)
+            {
+                for (int c = 0; c < fields.Count; c++)
+                    ws.Cell(r, c + 1).Value =
+                        values.TryGetValue(fields[c].Name, out var v) ? v?.ToString() ?? "" : "";
+                r++;
+            }
+            ws.SheetView.FreezeRows(1);
+            ws.Columns().AdjustToContents();
+            wb.SaveAs(path);
+        }
+
+        private static void ExportCsv(
+            string path, List<TpsField> fields,
+            List<(int RecordNumber, Dictionary<string, object> Values)> rows)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine(string.Join(",", fields.Select(f => CsvEscape(f.Name))));
+            foreach (var (_, values) in rows)
+            {
+                var cells = fields.Select(f =>
+                    CsvEscape(values.TryGetValue(f.Name, out var v) ? v?.ToString() ?? "" : ""));
+                sb.AppendLine(string.Join(",", cells));
+            }
+            // UTF-8 with BOM so Excel opens Georgian text correctly
+            File.WriteAllText(path, sb.ToString(), new UTF8Encoding(true));
+        }
+
+        private static string CsvEscape(string s)
+        {
+            s ??= "";
+            if (s.Contains(',') || s.Contains('"') || s.Contains('\n') || s.Contains('\r'))
+                return "\"" + s.Replace("\"", "\"\"") + "\"";
+            return s;
+        }
+
         private void BuildEditPanel(bool isInsert, int recordNum = -1)
         {
             _isInsertMode  = isInsert;

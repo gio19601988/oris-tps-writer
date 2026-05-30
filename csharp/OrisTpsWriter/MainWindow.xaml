@@ -182,6 +182,9 @@
                                 <Button x:Name="BtnImportData" Content="📥  Excel/CSV იმპორტი"
                                         Style="{StaticResource BtnGhost}"
                                         Click="BtnImportData_Click"/>
+                                <Button x:Name="BtnExportData" Content="📤  Excel/CSV ექსპორტი"
+                                        Style="{StaticResource BtnGhost}" Margin="6,0,0,0"
+                                        Click="BtnExportData_Click"/>
                             </StackPanel>
                             <Button x:Name="BtnSaveTps" Content="💾  TPS-ში შენახვა"
                                     Style="{StaticResource Btn}" HorizontalAlignment="Right"
